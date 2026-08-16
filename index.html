@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Supabase Bingo — Virtual Coins</title>
+<style>
+:root{--bg:#07111f;--panel:#0d1b2e;--panel2:#10233a;--text:#edf5ff;--muted:#9eb0c7;--accent:#38bdf8;--good:#34d399;--danger:#fb7185;--line:#203650}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(135deg,#07111f,#0a1728);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+button,input,select{font:inherit}button{cursor:pointer;border:0;border-radius:12px;padding:11px 15px;background:var(--accent);color:#03101c;font-weight:800}button.secondary{background:#203650;color:var(--text)}button.danger{background:var(--danger);color:#fff}button:disabled{opacity:.45;cursor:not-allowed}
+.wrap{max-width:1050px;margin:auto;padding:20px}.top{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:18px}.brand{font-size:22px;font-weight:900}.wallet{background:#102b43;border:1px solid #234b6c;padding:9px 13px;border-radius:999px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}.card{background:rgba(13,27,46,.94);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:0 12px 40px #0004}.full{grid-column:1/-1}
+h1,h2,h3{margin:0 0 12px}p{color:var(--muted);line-height:1.5}.row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}.field{display:flex;flex-direction:column;gap:6px;margin:10px 0}.field label{font-size:13px;color:var(--muted)}input,select{background:#081526;color:var(--text);border:1px solid var(--line);border-radius:11px;padding:11px;width:100%;outline:none}.small{font-size:12px;color:var(--muted)}.msg{padding:10px;border-radius:10px;background:#10233a;margin:10px 0}.ok{color:var(--good)}.err{color:var(--danger)}
+.hidden{display:none!important}.rooms{display:grid;gap:9px}.room{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:12px;background:#0a1728;border:1px solid var(--line);border-radius:12px}.room b{display:block}.room span{color:var(--muted);font-size:12px}
+.board{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;max-width:500px;margin:12px auto}.cell{aspect-ratio:1;border-radius:10px;background:#10233a;border:1px solid #294766;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:clamp(18px,5vw,30px);user-select:none}.cell.head{background:#173754;color:var(--accent);aspect-ratio:auto;padding:10px}.cell.marked{background:var(--good);color:#032019;border-color:var(--good)}.cell.free{background:#8b5cf6;color:white}.draw{font-size:52px;font-weight:1000;text-align:center;color:var(--accent);margin:8px}.balls{display:flex;gap:6px;flex-wrap:wrap;max-height:145px;overflow:auto}.ball{width:35px;height:35px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#193653;font-weight:800}.players{display:flex;gap:7px;flex-wrap:wrap}.player{padding:7px 10px;border-radius:999px;background:#17304a;font-size:13px}.footer{text-align:center;color:#71869f;padding:25px 0;font-size:12px}
+@media(max-width:600px){.wrap{padding:12px}.top{align-items:flex-start;flex-direction:column}.card{padding:14px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand">🎱 Bingo Arena <span class="small">Virtual Coins</span></div>
+    <div class="wallet">🪙 <b id="balance">0</b> coins</div>
+  </div>
+
+  <div id="configNotice" class="msg"></div>
+
+  <section id="authView" class="card">
+    <h2>Welcome</h2>
+    <p>This is a play-money Bingo prototype. No GCash or real-money wagering is processed by this file.</p>
+    <div class="grid">
+      <div>
+        <h3>Sign in</h3>
+        <div class="field"><label>Email</label><input id="email" type="email" placeholder="you@example.com"></div>
+        <div class="field"><label>Password</label><input id="password" type="password" placeholder="Password"></div>
+        <div class="row"><button id="loginBtn">Sign in</button><button class="secondary" id="signupBtn">Create account</button></div>
+      </div>
+      <div>
+        <h3>Demo mode</h3>
+        <p>For testing without Supabase credentials, use demo mode. It stores the virtual wallet locally in this browser.</p>
+        <button id="demoBtn">Enter demo mode</button>
+      </div>
+    </div>
+    <div id="authMsg"></div>
+  </section>
+
+  <section id="lobbyView" class="hidden">
+    <div class="grid">
+      <div class="card">
+        <h2>Create a room</h2>
+        <p>The room creator becomes the host. The host can start the virtual-coin game when everyone is ready.</p>
+        <div class="field"><label>Room name</label><input id="roomName" maxlength="40" value="My Bingo Room"></div>
+        <div class="field"><label>Entry coins</label><input id="entryCoins" type="number" min="1" max="1000" value="5"></div>
+        <div class="field"><label>Maximum players</label><input id="maxPlayers" type="number" min="2" max="100" value="20"></div>
+        <button id="createRoomBtn">Create room</button>
+      </div>
+      <div class="card">
+        <h2>Join a room</h2>
+        <div class="field"><label>Room code</label><input id="joinCode" maxlength="8" placeholder="AB12CD"></div>
+        <button id="joinRoomBtn">Join room</button>
+      </div>
+      <div class="card full">
+        <div class="row" style="justify-content:space-between"><h2>Open rooms</h2><button class="secondary" id="refreshBtn">Refresh</button></div>
+        <div id="rooms" class="rooms"></div>
+      </div>
+      <div class="card">
+        <h2>Account</h2>
+        <div id="accountInfo" class="small"></div>
+        <button class="secondary" id="logoutBtn">Sign out</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="roomView" class="hidden">
+    <div class="grid">
+      <div class="card full">
+        <div class="row" style="justify-content:space-between">
+          <div><h2 id="roomTitle">Bingo Room</h2><div class="small">Code: <b id="roomCode"></b></div></div>
+          <div id="roomStatus" class="msg">WAITING</div>
+        </div>
+        <div class="players" id="players"></div>
+      </div>
+      <div class="card">
+        <h3>Game</h3>
+        <div class="small">Entry: <b id="roomEntry">0</b> coins · Pot: <b id="pot">0</b> virtual coins</div>
+        <div id="draw" class="draw">—</div>
+        <div class="balls" id="balls"></div>
+        <div class="row" style="margin-top:12px">
+          <button id="startBtn">Start game</button>
+          <button class="secondary" id="leaveBtn">Leave room</button>
+        </div>
+        <div id="roomMsg"></div>
+      </div>
+      <div class="card">
+        <h3>Your card</h3>
+        <div class="board" id="board"></div>
+        <button id="bingoBtn" class="danger" disabled>🎉 BINGO!</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="footer">Virtual coins only • Supabase-ready single-file prototype</div>
+</div>
+
+<script>
+/*
+  SUPABASE SETUP
+  1) Replace SUPABASE_URL and SUPABASE_ANON_KEY below.
+  2) This HTML expects the Bingo tables created in your Supabase project.
+  3) For production, put game mutation logic in Edge Functions/RPCs and keep RLS enabled.
+*/
+const SUPABASE_URL = "YOUR_SUPABASE_URL";
+const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+
+const $ = id => document.getElementById(id);
+let sb = null, user = null, demo = false, room = null, card = [], marked = new Set(), drawn = [], timer = null, channel = null;
+
+const configReady = !SUPABASE_URL.includes("YOUR_") && !SUPABASE_ANON_KEY.includes("YOUR_");
+$("configNotice").innerHTML = configReady
+  ? '<span class="ok">Supabase configuration detected.</span>'
+  : '<span>Demo mode is available. Add your Supabase URL and anon key in this file to connect the backend.</span>';
+
+function msg(el, text, cls=""){ el.innerHTML = text ? `<div class="msg ${cls}">${text}</div>` : ""; }
+function id(){ return crypto.randomUUID ? crypto.randomUUID() : Date.now()+"-"+Math.random(); }
+function roomCode(){ return Math.random().toString(36).slice(2,8).toUpperCase(); }
+function setView(view){ ["authView","lobbyView","roomView"].forEach(x=>$(x).classList.toggle("hidden",x!==view)); }
+function getDemoBalance(){ return Number(localStorage.getItem("bingo_demo_coins") || 100); }
+function setDemoBalance(n){ localStorage.setItem("bingo_demo_coins", String(n)); $("balance").textContent=n; }
+async function updateBalance(){
+  if(demo){ setDemoBalance(getDemoBalance()); return; }
+  if(!user || !sb) return;
+  const {data,error}=await sb.from("bingo_demo_wallets").select("coins").eq("user_id",user.id).maybeSingle();
+  if(error){console.error(error);return}
+  if(!data) await sb.from("bingo_demo_wallets").insert({user_id:user.id,coins:100});
+  $("balance").textContent = data ? data.coins : 100;
+}
+function currentUserId(){ return demo ? "demo-"+(localStorage.getItem("bingo_demo_user")||"player") : user.id; }
+function playerName(){ return demo ? (localStorage.getItem("bingo_demo_name")||"Demo Player") : (user.email||"Player").split("@")[0]; }
+
+function generateCard(){
+  const cols=[];
+  for(let c=0;c<5;c++){
+    const min=c*15+1,max=c*15+15,a=[];
+    for(let n=min;n<=max;n++) a.push(n);
+    a.sort(()=>Math.random()-.5); cols.push(a.slice(0,5));
+  }
+  const out=[];
+  for(let r=0;r<5;r++) for(let c=0;c<5;c++) out.push(r===2&&c===2?0:cols[c][r]);
+  return out;
+}
+function renderCard(){
+  const b=$("board"); b.innerHTML="";
+  ["B","I","N","G","O"].forEach(x=>{const d=document.createElement("div");d.className="cell head";d.textContent=x;b.appendChild(d)});
+  card.forEach((n,i)=>{
+    const d=document.createElement("div");d.className="cell";
+    if(i===12){d.classList.add("free","marked");d.textContent="FREE"}else d.textContent=n;
+    if(marked.has(n)) d.classList.add("marked");
+    d.onclick=()=>{ if(room?.status==="active" && drawn.includes(n)){marked.add(n);renderCard();checkLocalBingo()} };
+    b.appendChild(d);
+  });
+}
+function checkLocalBingo(){
+  const m=i=>i===12 || marked.has(card[i]);
+  let win=false;
+  for(let r=0;r<5;r++) if([0,1,2,3,4].every(c=>m(r*5+c))) win=true;
+  for(let c=0;c<5;c++) if([0,1,2,3,4].every(r=>m(r*5+c))) win=true;
+  if([0,6,12,18,24].every(m)||[4,8,12,16,20].every(m)) win=true;
+  $("bingoBtn").disabled=!win || room?.status!=="active";
+}
+function renderDraw(){
+  $("draw").textContent=drawn.length?drawn[drawn.length-1]:"—";
+  $("balls").innerHTML=drawn.map(n=>`<span class="ball">${n}</span>`).join("");
+  checkLocalBingo();
+}
+function renderPlayers(players=[]){
+  $("players").innerHTML=players.map(p=>`<span class="player">👤 ${p.name||p.user_id?.slice(0,6)||"Player"}</span>`).join("");
+}
+
+async function authInit(){
+  if(!configReady) return;
+  const s = document.createElement("script");
+  s.src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+  s.onload=async()=>{
+    sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+    const {data}=await sb.auth.getSession(); user=data.session?.user||null;
+    if(user){await updateBalance();showLobby()}
+    sb.auth.onAuthStateChange(async(_e,session)=>{user=session?.user||null;if(user){await updateBalance();showLobby()}else if(!demo)setView("authView")});
+  };
+  document.head.appendChild(s);
+}
+async function login(){
+  if(!sb) return msg($("authMsg"),"Supabase is not configured. Use Demo mode or add your credentials.","err");
+  const {error}=await sb.auth.signInWithPassword({email:$("email").value.trim(),password:$("password").value});
+  msg($("authMsg"),error?error.message:"Signed in.",error?"err":"ok");
+}
+async function signup(){
+  if(!sb) return msg($("authMsg"),"Supabase is not configured.","err");
+  const {error}=await sb.auth.signUp({email:$("email").value.trim(),password:$("password").value});
+  msg($("authMsg"),error?error.message:"Account created. Check email confirmation if enabled.",error?"err":"ok");
+}
+function demoLogin(){
+  demo=true;
+  if(!localStorage.getItem("bingo_demo_user")) localStorage.setItem("bingo_demo_user",id());
+  if(!localStorage.getItem("bingo_demo_name")) localStorage.setItem("bingo_demo_name","Demo Player");
+  updateBalance(); $("accountInfo").textContent="Demo account • local browser wallet"; showLobby();
+}
+async function logout(){
+  if(demo){demo=false;setView("authView");return}
+  await sb?.auth.signOut(); user=null; setView("authView");
+}
+function showLobby(){
+  setView("lobbyView");
+  $("accountInfo").textContent=demo?"Demo account • virtual coins stored locally":(user?.email||"");
+  loadRooms();
+}
+async function loadRooms(){
+  if(demo){
+    $("rooms").innerHTML='<div class="small">Demo mode rooms are local to this browser. Create a room to test the UI.</div>';return;
+  }
+  const {data,error}=await sb.from("bingo_rounds").select("*").eq("status","waiting").order("created_at",{ascending:false}).limit(30);
+  if(error){msg($("rooms"),error.message,"err");return}
+  $("rooms").innerHTML=data?.length?data.map(r=>`<div class="room"><div><b>${r.name||"Bingo Room"}</b><span>${r.code||r.id.slice(0,8)} • Entry ${r.entry_coins} coins • Max ${r.max_players}</span></div><button onclick="joinRoom('${r.id}')">Join</button></div>`).join(""):"<div class='small'>No open rooms yet.</div>";
+}
+function createDemoRoom(){
+  const entry=Math.max(1,Number($("entryCoins").value||1)), max=Math.max(2,Number($("maxPlayers").value||20));
+  if(getDemoBalance()<entry) return msg($("roomMsg"),"Not enough virtual coins.","err");
+  setDemoBalance(getDemoBalance()-entry);
+  const r={id:id(),code:roomCode(),name:$("roomName").value.trim()||"Bingo Room",entry_coins:entry,max_players:max,status:"waiting",host_user_id:currentUserId(),players:[]};
+  localStorage.setItem("bingo_demo_room",JSON.stringify(r)); joinRoomData(r);
+}
+async function createRoom(){
+  const entry=Math.max(1,Number($("entryCoins").value||1)), max=Math.max(2,Number($("maxPlayers").value||20));
+  if(demo) return createDemoRoom();
+  if(Number($("balance").textContent)<entry)return msg($("roomMsg"),"Not enough virtual coins.","err");
+  const payload={status:"waiting",entry_coins:entry,max_players:max,name:$("roomName").value.trim()||"Bingo Room",code:roomCode(),host_user_id:user.id};
+  const {data,error}=await sb.from("bingo_rounds").insert(payload).select().single();
+  if(error)return msg($("rooms"),error.message,"err");
+  joinRoom(data.id);
+}
+async function joinRoom(idOrCode){
+  if(demo){let r=JSON.parse(localStorage.getItem("bingo_demo_room")||"null");if(!r)return;joinRoomData(r);return}
+  let q=sb.from("bingo_rounds").select("*");
+  q = String(idOrCode).length>10 ? q.eq("id",idOrCode) : q.eq("code",idOrCode);
+  const {data,error}=await q;
+  if(error||!data?.[0]) return alert("Room not found.");
+  joinRoomData(data[0]);
+}
+async function joinRoomData(r){
+  room={...r};
+  if(demo){ room.players=[{user_id:currentUserId(),name:playerName()}]; card=generateCard(); marked=new Set([0]); renderRoom(); return; }
+  card=generateCard();marked=new Set();drawn=[];
+  const {error}=await sb.from("bingo_players").insert({round_id:r.id,user_id:user.id});
+  if(error && !error.message.toLowerCase().includes("duplicate")){alert(error.message);return}
+  await sb.from("bingo_cards").insert({round_id:r.id,user_id:user.id,numbers:card,marked:[]});
+  await refreshRoom();
+  subscribeRoom();
+  setView("roomView");
+}
+async function refreshRoom(){
+  if(demo)return;
+  const {data:r}=await sb.from("bingo_rounds").select("*").eq("id",room.id).single(); if(r)room=r;
+  const {data:p}=await sb.from("bingo_players").select("user_id").eq("round_id",room.id);
+  renderRoom(p||[]);
+  const {data:c}=await sb.from("bingo_cards").select("numbers,marked").eq("round_id",room.id).eq("user_id",user.id).maybeSingle();
+  if(c){card=c.numbers;marked=new Set(c.marked||[]);renderCard()}
+  const {data:d}=await sb.from("bingo_draws").select("number").eq("round_id",room.id).order("draw_order");
+  if(d){drawn=d.map(x=>x.number);renderDraw()}
+}
+function renderRoom(players=room?.players||[]){
+  $("roomTitle").textContent=room?.name||"Bingo Room"; $("roomCode").textContent=room?.code||room?.id?.slice(0,8);
+  $("roomEntry").textContent=room?.entry_coins||0; $("pot").textContent=(players.length||1)*(room?.entry_coins||0);
+  $("roomStatus").textContent=(room?.status||"waiting").toUpperCase(); renderPlayers(players);
+  $("startBtn").classList.toggle("hidden",!demo && room?.host_user_id && room.host_user_id!==user?.id);
+  $("startBtn").disabled=room?.status!=="waiting";
+  renderCard();renderDraw();
+}
+function subscribeRoom(){
+  if(!sb||!room)return;
+  channel=sb.channel("bingo-"+room.id).on("postgres_changes",{event:"*",schema:"public",table:"bingo_rounds",filter:"id=eq."+room.id},refreshRoom).on("postgres_changes",{event:"*",schema:"public",table:"bingo_draws",filter:"round_id=eq."+room.id},async()=>{const {data}=await sb.from("bingo_draws").select("number,draw_order").eq("round_id",room.id).order("draw_order");drawn=(data||[]).map(x=>x.number);renderDraw()}).subscribe();
+}
+async function startGame(){
+  if(demo){room.status="active";drawn=[];renderRoom();startDemoDraw();return}
+  // Production note: this should be an Edge Function/RPC with atomic authorization.
+  const {error}=await sb.from("bingo_rounds").update({status:"active",started_at:new Date().toISOString()}).eq("id",room.id);
+  if(error)msg($("roomMsg"),error.message,"err");
+}
+function startDemoDraw(){
+  clearInterval(timer);let pool=Array.from({length:75},(_,i)=>i+1).sort(()=>Math.random()-.5),i=0;
+  timer=setInterval(()=>{if(i>=pool.length||room.status!=="active"){clearInterval(timer);return}drawn.push(pool[i++]);renderDraw();autoMark();},2500);
+}
+function autoMark(){drawn.forEach(n=>{if(card.includes(n))marked.add(n)});marked.add(0);renderCard();checkLocalBingo()}
+async function claimBingo(){
+  if(!room||room.status!=="active")return;
+  if(!checkWinSilent())return alert("Your card does not have Bingo yet.");
+  if(demo){
+    clearInterval(timer);
+    room.status="finished";$("roomStatus").textContent="FINISHED";
+    const pot=(room.players?.length||1)*(room.entry_coins||0);
+    setDemoBalance(getDemoBalance()+pot);
+    msg($("roomMsg"),`🎉 ${playerName()} won ${pot} virtual coins!`,"ok");
+    $("bingoBtn").disabled=true;
+    return;
+  }
+  alert("Bingo detected. In production, use a server-side Edge Function/RPC to atomically validate the winner.");
+}
+function checkWinSilent(){
+  const m=i=>i===12||marked.has(card[i]);
+  return Array.from({length:5},(_,r)=>[0,1,2,3,4].every(c=>m(r*5+c))).some(Boolean)
+    ||Array.from({length:5},(_,c)=>[0,1,2,3,4].every(r=>m(r*5+c))).some(Boolean)
+    ||[0,6,12,18,24].every(m)||[4,8,12,16,20].every(m);
+}
+async function leaveRoom(){
+  clearInterval(timer);
+  if(demo){
+    if(room?.status==="waiting") setDemoBalance(getDemoBalance()+(room.entry_coins||0));
+    localStorage.removeItem("bingo_demo_room");
+  }
+  if(channel)sb?.removeChannel(channel);channel=null;room=null;setView("lobbyView");loadRooms();
+}
+$("loginBtn").onclick=login;$("signupBtn").onclick=signup;$("demoBtn").onclick=demoLogin;$("logoutBtn").onclick=logout;
+$("createRoomBtn").onclick=createRoom;$("joinRoomBtn").onclick=()=>joinRoom($("joinCode").value.trim().toUpperCase());$("refreshBtn").onclick=loadRooms;
+$("startBtn").onclick=startGame;$("bingoBtn").onclick=claimBingo;$("leaveBtn").onclick=leaveRoom;
+authInit();setView(configReady?"authView":"authView");updateBalance();
+</script>
+</body>
+</html>
