@@ -23,7 +23,7 @@ h1,h2,h3{margin:0 0 12px}p{color:var(--muted);line-height:1.5}.row{display:flex;
     <div class="wallet">🪙 <b id="balance">0</b> coins</div>
   </div>
 
-  <div id="configNotice" class="msg"></div>
+  <div id="configNotice" class="msg"></div><div id="demoBadge" class="small hidden">🧪 DEMO MODE — virtual coins only</div>
 
   <section id="authView" class="card">
     <h2>Welcome</h2>
@@ -38,7 +38,7 @@ h1,h2,h3{margin:0 0 12px}p{color:var(--muted);line-height:1.5}.row{display:flex;
       <div>
         <h3>Demo mode</h3>
         <p>For testing without Supabase credentials, use demo mode. It stores the virtual wallet locally in this browser.</p>
-        <button id="demoBtn">Enter demo mode</button>
+        <button id="demoBtn">Enter Demo Lobby</button>
       </div>
     </div>
     <div id="authMsg"></div>
@@ -189,20 +189,26 @@ async function authInit(){
   document.head.appendChild(s);
 }
 async function login(){
-  if(!sb) return msg($("authMsg"),"Supabase is not configured. Use Demo mode or add your credentials.","err");
+  if(!sb) return msg($("authMsg"),"Demo mode is ready. Tap “Enter demo mode” to open the Bingo lobby. No Supabase login is required for demo testing.","");
   const {error}=await sb.auth.signInWithPassword({email:$("email").value.trim(),password:$("password").value});
   msg($("authMsg"),error?error.message:"Signed in.",error?"err":"ok");
 }
 async function signup(){
-  if(!sb) return msg($("authMsg"),"Supabase is not configured.","err");
+  if(!sb) return msg($("authMsg"),"Supabase is not configured in this HTML yet. Use “Enter demo mode” for local testing.","");
   const {error}=await sb.auth.signUp({email:$("email").value.trim(),password:$("password").value});
   msg($("authMsg"),error?error.message:"Account created. Check email confirmation if enabled.",error?"err":"ok");
 }
 function demoLogin(){
   demo=true;
-  if(!localStorage.getItem("bingo_demo_user")) localStorage.setItem("bingo_demo_user",id());
-  if(!localStorage.getItem("bingo_demo_name")) localStorage.setItem("bingo_demo_name","Demo Player");
-  updateBalance(); $("accountInfo").textContent="Demo account • local browser wallet"; showLobby();
+  $("demoBadge").classList.remove("hidden");
+  if(!localStorage.getItem("bingo_demo_user"))
+    localStorage.setItem("bingo_demo_user",id());
+  if(!localStorage.getItem("bingo_demo_name"))
+    localStorage.setItem("bingo_demo_name","Demo Player");
+  setDemoBalance(getDemoBalance());
+  $("accountInfo").textContent="Demo account • virtual coins stored locally";
+  setView("lobbyView");
+  loadRooms();
 }
 async function logout(){
   if(demo){demo=false;setView("authView");return}
@@ -215,7 +221,11 @@ function showLobby(){
 }
 async function loadRooms(){
   if(demo){
-    $("rooms").innerHTML='<div class="small">Demo mode rooms are local to this browser. Create a room to test the UI.</div>';return;
+    const saved=JSON.parse(localStorage.getItem("bingo_demo_room")||"null");
+    $("rooms").innerHTML=saved
+      ? `<div class="room"><div><b>${saved.name}</b><span>Code ${saved.code} • Entry ${saved.entry_coins} coins</span></div><button onclick="joinRoom('${saved.code}')">Enter</button></div>`
+      : '<div class="small">No demo room yet. Create one above.</div>';
+    return;
   }
   const {data,error}=await sb.from("bingo_rounds").select("*").eq("status","waiting").order("created_at",{ascending:false}).limit(30);
   if(error){msg($("rooms"),error.message,"err");return}
@@ -238,7 +248,17 @@ async function createRoom(){
   joinRoom(data.id);
 }
 async function joinRoom(idOrCode){
-  if(demo){let r=JSON.parse(localStorage.getItem("bingo_demo_room")||"null");if(!r)return;joinRoomData(r);return}
+  if(demo){
+    const r=JSON.parse(localStorage.getItem("bingo_demo_room")||"null");
+    if(!r){ alert("Create a demo room first."); return; }
+    const key=String(idOrCode||"").toUpperCase();
+    if(key && key!==String(r.code).toUpperCase() && key!==String(r.id).toUpperCase()){
+      alert("Demo room not found. Check the room code.");
+      return;
+    }
+    joinRoomData(r);
+    return;
+  }
   let q=sb.from("bingo_rounds").select("*");
   q = String(idOrCode).length>10 ? q.eq("id",idOrCode) : q.eq("code",idOrCode);
   const {data,error}=await q;
@@ -247,7 +267,15 @@ async function joinRoom(idOrCode){
 }
 async function joinRoomData(r){
   room={...r};
-  if(demo){ room.players=[{user_id:currentUserId(),name:playerName()}]; card=generateCard(); marked=new Set([0]); renderRoom(); return; }
+  if(demo){
+    room.players=[{user_id:currentUserId(),name:playerName()}];
+    card=generateCard();
+    marked=new Set([0]);
+    drawn=[];
+    renderRoom(room.players);
+    setView("roomView");
+    return;
+  }
   card=generateCard();marked=new Set();drawn=[];
   const {error}=await sb.from("bingo_players").insert({round_id:r.id,user_id:user.id});
   if(error && !error.message.toLowerCase().includes("duplicate")){alert(error.message);return}
@@ -286,7 +314,12 @@ async function startGame(){
 }
 function startDemoDraw(){
   clearInterval(timer);let pool=Array.from({length:75},(_,i)=>i+1).sort(()=>Math.random()-.5),i=0;
-  timer=setInterval(()=>{if(i>=pool.length||room.status!=="active"){clearInterval(timer);return}drawn.push(pool[i++]);renderDraw();autoMark();},2500);
+  timer=setInterval(()=>{if(i>=pool.length||room.status!=="active"){clearInterval(timer);return}drawn.push(pool[i++]);
+      room.drawn=drawn.slice();
+      localStorage.setItem("bingo_demo_room",JSON.stringify(room));
+      renderDraw();
+      autoMark();
+    },2500);
 }
 function autoMark(){drawn.forEach(n=>{if(card.includes(n))marked.add(n)});marked.add(0);renderCard();checkLocalBingo()}
 async function claimBingo(){
@@ -294,9 +327,11 @@ async function claimBingo(){
   if(!checkWinSilent())return alert("Your card does not have Bingo yet.");
   if(demo){
     clearInterval(timer);
-    room.status="finished";$("roomStatus").textContent="FINISHED";
+    room.status="finished";
+    $("roomStatus").textContent="FINISHED";
     const pot=(room.players?.length||1)*(room.entry_coins||0);
     setDemoBalance(getDemoBalance()+pot);
+    localStorage.setItem("bingo_demo_room",JSON.stringify(room));
     msg($("roomMsg"),`🎉 ${playerName()} won ${pot} virtual coins!`,"ok");
     $("bingoBtn").disabled=true;
     return;
